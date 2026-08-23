@@ -17,6 +17,9 @@ const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard.jsx"));
 const AdminComplaints = lazy(() => import("./pages/admin/AdminComplaints.jsx"));
 const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics.jsx"));
 const AdminZones = lazy(() => import("./pages/admin/AdminZones.jsx"));
+const AdminOfficers = lazy(() => import("./pages/admin/AdminOfficers.jsx"));
+
+const OFFICER_ROLES = ["junior-officer", "senior-officer", "super-admin"];
 
 function LoadingScreen() {
   return (
@@ -42,10 +45,11 @@ export default function App() {
           <Route path="/my-complaints" element={<ProtectedRoute><MyComplaints /></ProtectedRoute>} />
           <Route path="/supported" element={<ProtectedRoute><SupportedIssues /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="/admin" element={<ProtectedRoute roles={["admin", "super-admin"]}><AdminDashboard /></ProtectedRoute>} />
-          <Route path="/admin/complaints" element={<ProtectedRoute roles={["admin", "super-admin"]}><AdminComplaints /></ProtectedRoute>} />
-          <Route path="/admin/analytics" element={<ProtectedRoute roles={["admin", "super-admin"]}><AdminAnalytics /></ProtectedRoute>} />
-          <Route path="/admin/zones" element={<ProtectedRoute roles={["admin", "super-admin"]}><AdminZones /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute roles={OFFICER_ROLES}><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin/complaints" element={<ProtectedRoute roles={OFFICER_ROLES}><AdminComplaints /></ProtectedRoute>} />
+          <Route path="/admin/analytics" element={<ProtectedRoute roles={OFFICER_ROLES}><AdminAnalytics /></ProtectedRoute>} />
+          <Route path="/admin/zones" element={<ProtectedRoute roles={OFFICER_ROLES}><AdminZones /></ProtectedRoute>} />
+          <Route path="/admin/officers" element={<ProtectedRoute roles={["super-admin"]}><AdminOfficers /></ProtectedRoute>} />
           <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
           <Route path="*" element={<NotFound />} />
         </Route>

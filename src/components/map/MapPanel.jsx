@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import { getRegion, getZonesForRegion } from "../../config/regions.js";
+import { loadCityGis } from "../../services/geoService.js";
 
 const statusColors = {
   Open: "#2563eb",
@@ -20,10 +21,11 @@ function makeIcon(color) {
   });
 }
 
-export default function MapPanel({ complaints = [], regionId = "sati-vidisha", height = 520, filters = {} }) {
+export default function MapPanel({ complaints = [], regionId = "bhopal", height = 520, filters = {} }) {
   const nodeRef = useRef(null);
   const mapRef = useRef(null);
   const markersRef = useRef([]);
+  const boundaryLayerRef = useRef(null);
   const region = getRegion(regionId);
   const regionZones = getZonesForRegion(regionId);
 
@@ -37,6 +39,38 @@ export default function MapPanel({ complaints = [], regionId = "sati-vidisha", h
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(mapRef.current);
   }, [region.defaultCenterLat, region.defaultCenterLng, region.zoomLevel]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || region.geoMode !== "polygon") return undefined;
+    let cancelled = false;
+
+    loadCityGis(region).then((gis) => {
+      if (cancelled || !gis) return;
+      boundaryLayerRef.current?.remove();
+      const wardLayer = L.geoJSON(gis.wards, {
+        style: { color: "#0f766e", weight: 1, fillOpacity: 0.03 },
+        onEachFeature: (feature, layer) => {
+          layer.bindTooltip(`Ward ${feature.properties.wardNumber} - ${feature.properties.wardName}`, { sticky: true });
+        },
+      });
+      const zoneLayer = L.geoJSON(gis.zones, {
+        style: { color: "#7c3aed", weight: 1, dashArray: "4 4", fillOpacity: 0 },
+      });
+      // Real ward/zone office locations - the only verified point-of-interest
+      // data available for Bhopal in this dataset.
+      const officeLayer = L.geoJSON([...gis.wardOffices.features, ...gis.zoneOffices.features], {
+        pointToLayer: (feature, latlng) =>
+          L.circleMarker(latlng, { radius: 4, color: "#334155", fillColor: "#94a3b8", fillOpacity: 0.9, weight: 1 }),
+        onEachFeature: (feature, layer) => layer.bindTooltip(feature.properties.label || "Office", { sticky: true }),
+      });
+      boundaryLayerRef.current = L.layerGroup([wardLayer, zoneLayer, officeLayer]).addTo(map);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [region]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -59,6 +93,9 @@ export default function MapPanel({ complaints = [], regionId = "sati-vidisha", h
     complaints
       .filter((item) => !filters.status || item.status === filters.status)
       .filter((item) => !filters.category || item.aiCategory === filters.category)
+      .filter((item) => !filters.priority || item.aiPriority === filters.priority)
+      .filter((item) => !filters.ward || item.ward?.number === filters.ward)
+      .filter((item) => !filters.zone || String(item.zone?.number) === String(filters.zone))
       .filter((item) => item.latitude && item.longitude)
       .forEach((complaint) => {
         const marker = L.marker([complaint.latitude, complaint.longitude], {
@@ -66,14 +103,14 @@ export default function MapPanel({ complaints = [], regionId = "sati-vidisha", h
         }).addTo(map);
         marker.bindPopup(`
           <strong>${complaint.aiCategory}</strong><br>
-          ${complaint.zoneName || "Unmapped"}<br>
+          ${complaint.ward ? `Ward ${complaint.ward.number} - ${complaint.ward.name}` : complaint.zoneName || "Unmapped"}<br>
           ${complaint.status} - ${complaint.supportCount || 0} supporters
         `);
         markersRef.current.push(marker);
       });
 
     window.setTimeout(() => map.invalidateSize(), 150);
-  }, [complaints, filters.category, filters.status, regionZones]);
+  }, [complaints, filters.category, filters.priority, filters.status, filters.ward, filters.zone, regionZones]);
 
   return <div ref={nodeRef} className="z-0 w-full overflow-hidden rounded-lg border border-slate-200" style={{ height }} />;
 }

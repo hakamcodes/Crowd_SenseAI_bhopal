@@ -7,19 +7,26 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "gis:convert": "node scripts/convert-bhopal-gis.mjs"
   },
   "dependencies": {
+    "@turf/boolean-point-in-polygon": "^7.4.0",
+    "@turf/helpers": "^7.4.0",
     "@vitejs/plugin-react": "^5.0.0",
     "firebase": "^12.1.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
-    "vite": "^7.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.0"
+    "react-router-dom": "^7.0.0",
+    "vite": "^7.0.0"
   },
   "devDependencies": {
+    "@tmcw/togeojson": "^7.1.2",
+    "@turf/centroid": "^7.4.0",
+    "@turf/point-on-feature": "^7.4.0",
+    "@xmldom/xmldom": "^0.9.12",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.15.0",
     "eslint-plugin-react": "^7.37.2",

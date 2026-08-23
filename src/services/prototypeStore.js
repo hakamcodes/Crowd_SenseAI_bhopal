@@ -1,4 +1,4 @@
-import { regions, zones } from "../config/regions.js";
+import { defaultRegionId, regions, zones } from "../config/regions.js";
 import { sampleComplaints, sampleVotes } from "../config/sampleData.js";
 
 const STORAGE_KEY = "crowdsense-ai-prototype-v1";
@@ -10,16 +10,60 @@ const demoUsers = [
     email: "citizen@crowdsense.local",
     photoURL: "",
     role: "citizen",
-    regionPreference: "sati-vidisha",
+    zoneNumber: null,
+    regionPreference: defaultRegionId,
     createdAt: new Date().toISOString(),
   },
   {
     uid: "demo-admin",
-    name: "Demo Admin",
+    name: "Demo Super Admin",
     email: "admin@crowdsense.local",
     photoURL: "",
-    role: "admin",
-    regionPreference: "sati-vidisha",
+    role: "super-admin",
+    zoneNumber: null,
+    regionPreference: defaultRegionId,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    uid: "demo-senior",
+    name: "Demo Senior Officer",
+    email: "demo-senior@crowdsense.local",
+    photoURL: "",
+    role: "senior-officer",
+    zoneNumber: 8,
+    regionPreference: defaultRegionId,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    uid: "demo-junior",
+    name: "Demo Junior Officer",
+    email: "demo-junior@crowdsense.local",
+    photoURL: "",
+    role: "junior-officer",
+    zoneNumber: 8,
+    regionPreference: defaultRegionId,
+    createdAt: new Date().toISOString(),
+  },
+];
+
+// Matches the demo-senior/demo-junior users above, both on real Zone 8 (which
+// the "Ravindra Nath Tagore" seed complaint in sampleComplaints also falls
+// under) so the demo accounts have something to see immediately.
+const demoOfficers = [
+  {
+    email: "demo-senior@crowdsense.local",
+    name: "Demo Senior Officer",
+    roleTier: "senior-officer",
+    zoneNumber: 8,
+    active: true,
+    createdAt: new Date().toISOString(),
+  },
+  {
+    email: "demo-junior@crowdsense.local",
+    name: "Demo Junior Officer",
+    roleTier: "junior-officer",
+    zoneNumber: 8,
+    active: true,
     createdAt: new Date().toISOString(),
   },
 ];
@@ -33,6 +77,8 @@ function initialState() {
     votes: sampleVotes,
     adminNotes: [],
     auditLog: [],
+    officers: demoOfficers,
+    notifications: [],
   };
 }
 

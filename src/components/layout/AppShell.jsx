@@ -3,6 +3,7 @@ import { BarChart3, LogOut, Map, Menu, Settings, Shield, User, X } from "lucide-
 import { useState } from "react";
 import { useAuth } from "../../state/AuthContext.jsx";
 import ToastViewport from "../ui/ToastViewport.jsx";
+import NotificationBell from "./NotificationBell.jsx";
 
 const navItems = [
   { to: "/", label: "Home" },
@@ -17,8 +18,8 @@ function NavigationLink({ to, label, onClick }) {
       to={to}
       onClick={onClick}
       className={({ isActive }) =>
-        `rounded-md px-3 py-2 text-sm font-semibold transition ${
-          isActive ? "bg-civic text-white" : "text-slate-700 hover:bg-slate-100 hover:text-ink"
+        `rounded-md px-3 py-2 text-sm font-semibold transition duration-150 ${
+          isActive ? "bg-civic text-white shadow-card" : "text-slate-700 hover:bg-slate-100 hover:text-ink"
         }`
       }
     >
@@ -36,11 +37,13 @@ export default function AppShell() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-paper/90 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-          <NavLink to="/" className="flex items-center gap-3">
-            <span className="grid h-10 w-10 place-items-center rounded-lg bg-ink text-sm font-black text-white">CS</span>
+          <NavLink to="/" className="group flex items-center gap-3">
+            <span className="grid h-10 w-10 flex-none place-items-center rounded-lg bg-gradient-to-br from-ink to-teal-900 text-sm font-black text-white shadow-card transition group-hover:shadow-glow">
+              CS
+            </span>
             <span>
               <span className="block text-base font-black tracking-tight">CrowdSense AI</span>
-              <span className="hidden text-xs font-medium text-slate-500 sm:block">Scalable civic reporting for India</span>
+              <span className="hidden text-xs font-medium text-slate-500 sm:block">Civic intelligence platform</span>
             </span>
           </NavLink>
 
@@ -55,6 +58,7 @@ export default function AppShell() {
           <div className="hidden items-center gap-2 md:flex">
             {user ? (
               <>
+                {isAdmin && <NotificationBell />}
                 <NavLink to="/settings" className="btn-ghost" title="Settings">
                   <Settings size={17} />
                   <span className="hidden lg:inline">{user.name}</span>
@@ -79,8 +83,8 @@ export default function AppShell() {
       </header>
 
       {open && (
-        <div className="fixed inset-0 z-[100] bg-ink/40 md:hidden">
-          <div className="ml-auto flex h-full w-[min(86vw,360px)] flex-col bg-white p-4 shadow-soft">
+        <div className="fixed inset-0 z-[100] bg-ink/40 backdrop-blur-sm md:hidden">
+          <div className="ml-auto flex h-full w-[min(86vw,360px)] animate-fade-up flex-col bg-white p-4 shadow-soft">
             <div className="mb-4 flex items-center justify-between">
               <strong>CrowdSense AI</strong>
               <button type="button" className="btn-ghost" aria-label="Close menu" onClick={() => setOpen(false)}>
@@ -113,11 +117,11 @@ export default function AppShell() {
 
       <footer className="border-t border-slate-200 bg-white/70">
         <div className="section flex flex-col gap-4 py-6 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
-          <span>CrowdSense AI uses SATI Vidisha as pilot data and supports future regions by configuration.</span>
-          <span className="flex items-center gap-4">
-            <span className="inline-flex items-center gap-1"><Map size={15} /> Leaflet + OSM</span>
-            <span className="inline-flex items-center gap-1"><Shield size={15} /> Role protected</span>
-            <span className="inline-flex items-center gap-1"><BarChart3 size={15} /> Analytics ready</span>
+          <span>CrowdSense AI is piloted on Bhopal with real ward/zone GIS data, and supports future cities by configuration.</span>
+          <span className="flex flex-wrap items-center gap-4">
+            <span className="inline-flex items-center gap-1.5"><Map size={15} className="text-civic" /> Leaflet + OSM</span>
+            <span className="inline-flex items-center gap-1.5"><Shield size={15} className="text-civic" /> Role protected</span>
+            <span className="inline-flex items-center gap-1.5"><BarChart3 size={15} className="text-civic" /> Analytics ready</span>
           </span>
         </div>
       </footer>

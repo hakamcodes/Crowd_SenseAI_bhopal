@@ -1,3 +1,5 @@
+import { bhopalDepartments, resolveBhopalDepartment } from "./departments.bhopal.js";
+
 export const issueCategories = [
   "Road Damage",
   "Garbage",
@@ -10,6 +12,10 @@ export const issueCategories = [
   "Sanitation",
   "Broken Furniture",
   "Safety Hazard",
+  "Illegal Construction",
+  "Stray Animal",
+  "Tree / Garden Maintenance",
+  "Traffic / Signage",
   "Other",
 ];
 
@@ -36,17 +42,42 @@ export const departments = [
 
 export const regions = [
   {
+    regionId: "bhopal",
+    name: "Bhopal",
+    type: "city",
+    geoMode: "polygon",
+    country: "India",
+    state: "Madhya Pradesh",
+    district: "Bhopal",
+    municipality: "Bhopal Municipal Corporation",
+    active: true,
+    defaultCenterLat: 23.2599,
+    defaultCenterLng: 77.4126,
+    zoomLevel: 12,
+    tagline: "Bhopal civic-intelligence pilot for the Cloud Impact Lab Hackathon.",
+    departments: bhopalDepartments,
+    gis: {
+      wardsUrl: "/gis/bhopal/wards.geojson",
+      zonesUrl: "/gis/bhopal/zones.geojson",
+      cityBoundaryUrl: "/gis/bhopal/city-boundary.geojson",
+      wardOfficesUrl: "/gis/bhopal/ward-offices.geojson",
+      zoneOfficesUrl: "/gis/bhopal/zone-offices.geojson",
+    },
+  },
+  {
     regionId: "sati-vidisha",
     name: "SATI Vidisha",
     type: "campus",
+    geoMode: "circle",
     country: "India",
     state: "Madhya Pradesh",
     district: "Vidisha",
+    municipality: "SATI Campus Administration",
     active: true,
     defaultCenterLat: 23.517770,
     defaultCenterLng: 77.819339,
     zoomLevel: 16,
-    tagline: "Pilot campus region for a scalable civic reporting network.",
+    tagline: "Legacy pilot campus region, kept as a demo configuration.",
     departments,
   },
 ];
@@ -109,7 +140,7 @@ export const zones = [
   },
 ];
 
-export const defaultRegionId = import.meta.env.VITE_DEFAULT_REGION_ID || "sati-vidisha";
+export const defaultRegionId = import.meta.env.VITE_DEFAULT_REGION_ID || "bhopal";
 
 export function getRegion(regionId = defaultRegionId) {
   return regions.find((region) => region.regionId === regionId) || regions[0];
@@ -117,4 +148,31 @@ export function getRegion(regionId = defaultRegionId) {
 
 export function getZonesForRegion(regionId = defaultRegionId) {
   return zones.filter((zone) => zone.regionId === regionId && zone.active);
+}
+
+export function getDepartmentsForRegion(regionId = defaultRegionId) {
+  return getRegion(regionId).departments || departments;
+}
+
+const satiDepartmentByCategory = {
+  "Road Damage": "Civil Maintenance",
+  Garbage: "Sanitation Team",
+  Streetlight: "Electrical Department",
+  Waterlogging: "Civil Maintenance",
+  "Blocked Drain": "Sanitation Team",
+  "Water Leak": "Water Works",
+  Electrical: "Electrical Department",
+  "Hostel Maintenance": "Hostel Administration",
+  Sanitation: "Sanitation Team",
+  "Broken Furniture": "Campus Administration",
+  "Safety Hazard": "Security Office",
+  Other: "Campus Administration",
+};
+
+// Deterministic category -> department routing, kept out of the AI's hands.
+// The AI may only *suggest* a department (shown for transparency); this map
+// always decides the department actually stored on a complaint.
+export function resolveDepartmentForCategory(category, regionId = defaultRegionId) {
+  if (regionId === "bhopal") return resolveBhopalDepartment(category);
+  return satiDepartmentByCategory[category] || departments[departments.length - 1];
 }

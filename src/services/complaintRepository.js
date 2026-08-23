@@ -1,7 +1,8 @@
-import { addDoc, collection, doc, getDocs, orderBy, query, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, orderBy, query, updateDoc } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "./firebase.js";
 import { readStore, writeStore } from "./prototypeStore.js";
 import { toDate } from "../utils/date.js";
+import { computeSlaDueAt } from "../config/sla.js";
 
 function uid(prefix) {
   return `${prefix}-${crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36)}`;
@@ -25,6 +26,29 @@ function normalizeComplaint(complaint) {
     resolutionImageData: "",
     resolvedAt: "",
     timeline: [{ label: "Reported", at: createdAt }],
+    city: "",
+    state: "",
+    country: "",
+    municipality: "",
+    ward: null,
+    zone: null,
+    locality: "",
+    road: "",
+    formattedAddress: "",
+    aiSubcategory: "",
+    aiSeverityScore: null,
+    aiCivicImpactScore: null,
+    aiRisks: null,
+    aiRecommendedAction: "",
+    aiSuggestedDepartment: "",
+    duplicatePercentage: 0,
+    clusterId: "",
+    slaDueAt: "",
+    assignedOfficer: "",
+    assignedOfficerEmail: "",
+    escalationLevel: 0,
+    escalatedAt: "",
+    imageHash: "",
     ...complaint,
     createdAt,
     updatedAt,
@@ -46,6 +70,9 @@ export async function createComplaint(payload) {
     timeline: [{ label: "Reported", at: now }],
     createdAt: now,
     updatedAt: now,
+    slaDueAt: computeSlaDueAt(payload.aiPriority, now),
+    escalationLevel: 0,
+    escalatedAt: "",
     ...payload,
   };
 
@@ -63,14 +90,51 @@ export async function createComplaint(payload) {
   return localComplaint;
 }
 
+// A complaint can never move to Resolved without photo evidence attached -
+// enforced here so no UI path can bypass it, not just in the form that
+// happens to call it today.
+function assertResolutionProofPresent(patch, existing) {
+  if (patch.status !== "Resolved") return;
+  if (patch.resolutionImageData || existing?.resolutionImageData) return;
+  throw new Error("A resolution photo is required before marking this complaint Resolved.");
+}
+
 export async function updateComplaint(complaintId, patch, actorId = "system") {
   const now = new Date().toISOString();
+
   if (isFirebaseConfigured) {
-    await updateDoc(doc(db, "complaints", complaintId), { ...patch, updatedAt: now });
+    const ref = doc(db, "complaints", complaintId);
+    const snapshot = await getDoc(ref);
+    const existing = snapshot.exists() ? snapshot.data() : null;
+    assertResolutionProofPresent(patch, existing);
+
+    const timeline =
+      patch.status && existing && patch.status !== existing.status
+        ? [...(existing.timeline || []), { label: patch.status, at: now }]
+        : existing?.timeline || [];
+
+    await updateDoc(ref, {
+      ...patch,
+      timeline,
+      updatedAt: now,
+      resolvedAt: patch.status === "Resolved" ? now : existing?.resolvedAt || "",
+    });
+
+    await addDoc(collection(db, "auditLog"), {
+      complaintId,
+      actorId,
+      actionType: "update_complaint",
+      oldValue: "",
+      newValue: JSON.stringify(patch),
+      createdAt: now,
+    });
     return;
   }
 
   const store = readStore();
+  const existingLocal = store.complaints.find((item) => item.complaintId === complaintId);
+  assertResolutionProofPresent(patch, existingLocal);
+
   const complaints = store.complaints.map((item) => {
     if (item.complaintId !== complaintId) return item;
     const timeline =

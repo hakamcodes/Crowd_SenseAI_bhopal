@@ -7,6 +7,15 @@ const statusClass = {
   Rejected: "bg-red-50 text-red-800 border-red-200",
 };
 
+const statusDot = {
+  Open: "bg-blue-600",
+  Triaged: "bg-amber-600",
+  "In Progress": "bg-teal-600",
+  Resolved: "bg-emerald-600",
+  Duplicate: "bg-slate-500",
+  Rejected: "bg-red-600",
+};
+
 const priorityClass = {
   Low: "bg-slate-100 text-slate-700 border-slate-200",
   Medium: "bg-yellow-50 text-yellow-800 border-yellow-200",
@@ -14,14 +23,34 @@ const priorityClass = {
   Critical: "bg-red-50 text-red-800 border-red-200",
 };
 
-export function Badge({ children, className = "" }) {
-  return <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${className}`}>{children}</span>;
+const priorityDot = {
+  Low: "bg-slate-500",
+  Medium: "bg-yellow-600",
+  High: "bg-orange-600",
+  Critical: "bg-red-600",
+};
+
+export function Badge({ children, className = "", dotClassName = "" }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-bold shadow-sm ${className}`}>
+      {dotClassName && <span className={`h-1.5 w-1.5 flex-none rounded-full ${dotClassName}`} />}
+      {children}
+    </span>
+  );
 }
 
 export function StatusBadge({ status }) {
-  return <Badge className={statusClass[status] || statusClass.Open}>{status || "Open"}</Badge>;
+  return (
+    <Badge className={statusClass[status] || statusClass.Open} dotClassName={statusDot[status] || statusDot.Open}>
+      {status || "Open"}
+    </Badge>
+  );
 }
 
 export function PriorityBadge({ priority }) {
-  return <Badge className={priorityClass[priority] || priorityClass.Medium}>{priority || "Medium"}</Badge>;
+  return (
+    <Badge className={priorityClass[priority] || priorityClass.Medium} dotClassName={priorityDot[priority] || priorityDot.Medium}>
+      {priority || "Medium"}
+    </Badge>
+  );
 }

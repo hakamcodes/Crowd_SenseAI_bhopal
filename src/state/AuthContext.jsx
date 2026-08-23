@@ -9,27 +9,26 @@ import {
 } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "../services/firebase.js";
 import { readStore, upsertUser } from "../services/prototypeStore.js";
+import { defaultRegionId } from "../config/regions.js";
+import { listOfficers, resolveRoleForEmail } from "../services/officerService.js";
 
 const AuthContext = createContext(null);
+const OFFICER_ROLES = ["junior-officer", "senior-officer", "super-admin"];
 
-const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS || "admin@crowdsense.local")
-  .split(",")
-  .map((email) => email.trim().toLowerCase())
-  .filter(Boolean);
-
-function roleForEmail(email) {
-  return adminEmails.includes(email?.toLowerCase()) ? "admin" : "citizen";
-}
-
-function normalizeFirebaseUser(firebaseUser) {
-  if (!firebaseUser) return null;
+// Role/zone are never taken from the client - they always come from
+// VITE_ADMIN_EMAILS (super admin) or the officers roster, looked up fresh on
+// every sign-in.
+async function buildUser({ uid, email, name, photoURL }) {
+  const roster = await listOfficers();
+  const { role, zoneNumber } = resolveRoleForEmail(email, roster);
   return {
-    uid: firebaseUser.uid,
-    name: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Citizen",
-    email: firebaseUser.email,
-    photoURL: firebaseUser.photoURL || "",
-    role: roleForEmail(firebaseUser.email),
-    regionPreference: import.meta.env.VITE_DEFAULT_REGION_ID || "sati-vidisha",
+    uid,
+    name: name || email?.split("@")[0] || "Citizen",
+    email,
+    photoURL: photoURL || "",
+    role,
+    zoneNumber,
+    regionPreference: defaultRegionId,
     createdAt: new Date().toISOString(),
   };
 }
@@ -44,12 +43,23 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!isFirebaseConfigured) return undefined;
     return onAuthStateChanged(auth, (firebaseUser) => {
-      const normalized = normalizeFirebaseUser(firebaseUser);
-      setUser(normalized);
-      if (normalized) upsertUser(normalized);
-      if (normalized) localStorage.setItem("crowdsense-current-user", JSON.stringify(normalized));
-      else localStorage.removeItem("crowdsense-current-user");
-      setLoading(false);
+      if (!firebaseUser) {
+        setUser(null);
+        localStorage.removeItem("crowdsense-current-user");
+        setLoading(false);
+        return;
+      }
+      buildUser({
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: firebaseUser.displayName,
+        photoURL: firebaseUser.photoURL,
+      }).then((normalized) => {
+        setUser(normalized);
+        upsertUser(normalized);
+        localStorage.setItem("crowdsense-current-user", JSON.stringify(normalized));
+        setLoading(false);
+      });
     });
   }, []);
 
@@ -72,46 +82,28 @@ export function AuthProvider({ children }) {
 
   const signInWithGoogle = useCallback(async () => {
     if (!isFirebaseConfigured) return signInDemo("citizen");
-    const result = await signInWithPopup(auth, new GoogleAuthProvider());
-    return normalizeFirebaseUser(result.user);
+    await signInWithPopup(auth, new GoogleAuthProvider());
+    // onAuthStateChanged resolves the role/zone and updates context state.
   }, [signInDemo]);
 
   const signInEmail = useCallback(async (email, password) => {
     if (!isFirebaseConfigured) {
-      const nextUser = {
-        uid: `local-${email.toLowerCase()}`,
-        name: email.split("@")[0],
-        email,
-        photoURL: "",
-        role: roleForEmail(email),
-        regionPreference: import.meta.env.VITE_DEFAULT_REGION_ID || "sati-vidisha",
-        createdAt: new Date().toISOString(),
-      };
+      const nextUser = await buildUser({ uid: `local-${email.toLowerCase()}`, email });
       setSession(nextUser);
       return nextUser;
     }
-    const result = await signInWithEmailAndPassword(auth, email, password);
-    return normalizeFirebaseUser(result.user);
+    await signInWithEmailAndPassword(auth, email, password);
+    return null;
   }, [setSession]);
 
   const signUpEmail = useCallback(async (email, password, name) => {
     if (!isFirebaseConfigured) {
-      const nextUser = {
-        uid: `local-${email.toLowerCase()}`,
-        name: name || email.split("@")[0],
-        email,
-        photoURL: "",
-        role: roleForEmail(email),
-        regionPreference: import.meta.env.VITE_DEFAULT_REGION_ID || "sati-vidisha",
-        createdAt: new Date().toISOString(),
-      };
+      const nextUser = await buildUser({ uid: `local-${email.toLowerCase()}`, email, name });
       setSession(nextUser);
       return nextUser;
     }
-    const result = await createUserWithEmailAndPassword(auth, email, password);
-    const normalized = normalizeFirebaseUser(result.user);
-    setSession({ ...normalized, name: name || normalized.name });
-    return normalized;
+    await createUserWithEmailAndPassword(auth, email, password);
+    return null;
   }, [setSession]);
 
   const logout = useCallback(async () => {
@@ -124,7 +116,7 @@ export function AuthProvider({ children }) {
       user,
       loading,
       isAuthenticated: Boolean(user),
-      isAdmin: ["admin", "super-admin"].includes(user?.role),
+      isAdmin: OFFICER_ROLES.includes(user?.role),
       signInDemo,
       signInWithGoogle,
       signInEmail,

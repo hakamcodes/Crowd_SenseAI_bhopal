@@ -1,18 +1,47 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { addAdminNote, createComplaint, listComplaints, supportComplaint, updateComplaint } from "../services/complaintRepository.js";
 import { buildAnalytics } from "../services/analyticsService.js";
+import { getSeniorOfficerForZone, listOfficers, upsertOfficer } from "../services/officerService.js";
+import { listNotificationsFor, markNotificationRead, notify } from "../services/notificationService.js";
+import { computeEscalationBumps } from "../services/escalationService.js";
 import { regions, zones } from "../config/regions.js";
+import { useAuth } from "./AuthContext.jsx";
 
 const DataContext = createContext(null);
 
 export function DataProvider({ children }) {
+  const { user } = useAuth();
   const [complaints, setComplaints] = useState([]);
+  const [officers, setOfficers] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const escalatingRef = useRef(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      setComplaints(await listComplaints());
+      const [complaintList, roster] = await Promise.all([listComplaints(), listOfficers()]);
+      setOfficers(roster);
+
+      // Deterministic SLA-breach escalation, applied client-side on refresh
+      // (no scheduled backend job in this prototype - see plan notes).
+      if (!escalatingRef.current) {
+        escalatingRef.current = true;
+        const bumps = computeEscalationBumps(complaintList, roster);
+        if (bumps.length) {
+          await Promise.all(
+            bumps.map(async (bump) => {
+              await updateComplaint(bump.complaintId, bump.patch, "system-escalation");
+              await Promise.all(bump.notifyEmails.map((email) => notify(email, "escalation", bump.complaintId, bump.message)));
+            }),
+          );
+          setComplaints(await listComplaints());
+          escalatingRef.current = false;
+          return;
+        }
+        escalatingRef.current = false;
+      }
+      setComplaints(complaintList);
     } finally {
       setLoading(false);
     }
@@ -25,6 +54,23 @@ export function DataProvider({ children }) {
     return () => window.removeEventListener("crowdsense-store-updated", listener);
   }, [refresh]);
 
+  const loadNotifications = useCallback(async () => {
+    if (!user?.email) {
+      setNotifications([]);
+      return;
+    }
+    setNotifications(await listNotificationsFor(user.email));
+  }, [user?.email]);
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications, complaints]);
+
+  const markNotificationsRead = useCallback(async (notificationId) => {
+    await markNotificationRead(notificationId);
+    await loadNotifications();
+  }, [loadNotifications]);
+
   const submitComplaint = useCallback(async (payload) => {
     const complaint = await createComplaint(payload);
     await refresh();
@@ -35,6 +81,28 @@ export function DataProvider({ children }) {
     await updateComplaint(complaintId, patch, actorId);
     await refresh();
   }, [refresh]);
+
+  const assignOfficer = useCallback(async (complaintId, officerEmail, officerName, actorId) => {
+    await updateComplaint(
+      complaintId,
+      { assignedOfficerEmail: officerEmail, assignedOfficer: officerName, escalationLevel: 0, escalatedAt: "" },
+      actorId,
+    );
+    await notify(officerEmail, "assignment", complaintId, "A new complaint has been assigned to you.");
+    await refresh();
+  }, [refresh]);
+
+  const bounceToSenior = useCallback(async (complaint, reason, actorId) => {
+    const senior = getSeniorOfficerForZone(complaint.zone?.number, officers);
+    await updateComplaint(
+      complaint.complaintId,
+      { assignedOfficerEmail: "", assignedOfficer: "", escalationLevel: 1, escalatedAt: new Date().toISOString() },
+      actorId,
+    );
+    if (senior) await notify(senior.email, "bounce", complaint.complaintId, reason || "A complaint was returned to you for reassignment.");
+    await refresh();
+    return senior;
+  }, [officers, refresh]);
 
   const support = useCallback(async (complaintId, userId) => {
     const result = await supportComplaint(complaintId, userId);
@@ -47,11 +115,18 @@ export function DataProvider({ children }) {
     await refresh();
   }, [refresh]);
 
-  const analytics = useMemo(() => buildAnalytics(complaints), [complaints]);
+  const saveOfficer = useCallback(async (officer) => {
+    await upsertOfficer(officer);
+    await refresh();
+  }, [refresh]);
+
+  const analytics = useMemo(() => buildAnalytics(complaints, officers), [complaints, officers]);
 
   const value = useMemo(
     () => ({
       complaints,
+      officers,
+      notifications,
       regions,
       zones,
       analytics,
@@ -59,10 +134,29 @@ export function DataProvider({ children }) {
       refresh,
       submitComplaint,
       saveComplaintPatch,
+      assignOfficer,
+      bounceToSenior,
       support,
       note,
+      saveOfficer,
+      markNotificationsRead,
     }),
-    [analytics, complaints, loading, note, refresh, saveComplaintPatch, submitComplaint, support],
+    [
+      analytics,
+      assignOfficer,
+      bounceToSenior,
+      complaints,
+      loading,
+      markNotificationsRead,
+      note,
+      notifications,
+      officers,
+      refresh,
+      saveComplaintPatch,
+      saveOfficer,
+      submitComplaint,
+      support,
+    ],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { AlertCircle, CheckCircle2, X } from "lucide-react";
 
 const ToastContext = createContext(null);
 
@@ -19,19 +19,24 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="fixed right-4 top-4 z-[1000] flex w-[min(92vw,380px)] flex-col gap-3">
+      <div className="pointer-events-none fixed right-4 top-4 z-[1000] flex w-[min(92vw,380px)] flex-col gap-3">
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`card flex items-start gap-3 px-4 py-3 text-sm ${
-              toast.type === "error" ? "border-red-200 bg-red-50 text-red-900" : "text-ink"
+            className={`card pointer-events-auto flex animate-fade-up items-start gap-3 px-4 py-3 text-sm shadow-lift ${
+              toast.type === "error" ? "border-red-200 bg-red-50 text-red-900" : "border-teal-200/70 bg-white text-ink"
             }`}
           >
-            <span className="flex-1">{toast.message}</span>
+            {toast.type === "error" ? (
+              <AlertCircle size={18} className="mt-0.5 flex-none text-red-600" />
+            ) : (
+              <CheckCircle2 size={18} className="mt-0.5 flex-none text-civic" />
+            )}
+            <span className="flex-1 leading-5">{toast.message}</span>
             <button
               type="button"
               aria-label="Dismiss"
-              className="rounded-md p-1 hover:bg-black/5"
+              className="rounded-md p-1 transition hover:bg-black/5"
               onClick={() => setToasts((current) => current.filter((item) => item.id !== toast.id))}
             >
               <X size={16} />

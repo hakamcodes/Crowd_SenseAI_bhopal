@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import { Mail, Shield, UserRound } from "lucide-react";
+import { Mail, Shield, ShieldCheck, UserRound, Users } from "lucide-react";
 import { useAuth } from "../state/AuthContext.jsx";
 import { useToast } from "../state/ToastContext.jsx";
 
@@ -34,35 +34,43 @@ export default function SignIn() {
 
   async function handleDemo(role) {
     signInDemo(role);
-    navigate(role === "admin" ? "/admin" : target, { replace: true });
+    navigate(role === "citizen" ? target : "/admin", { replace: true });
   }
 
   return (
     <section className="section grid min-h-[calc(100vh-8rem)] items-center gap-8 lg:grid-cols-[1fr_0.9fr]">
-      <div>
-        <p className="text-sm font-black uppercase tracking-[0.18em] text-civic">Secure access</p>
+      <div className="animate-fade-up">
+        <p className="eyebrow">Secure access</p>
         <h1 className="mt-3 text-4xl font-black tracking-tight text-ink sm:text-5xl">Sign in to report, support, and track issues.</h1>
         <p className="mt-4 max-w-xl text-base leading-7 text-slate-700">
-          Prototype mode includes demo citizen and admin access. Once Firebase is configured, Google and email authentication use your project credentials.
+          Demo mode gives you citizen and officer access instantly. Once Firebase is configured, Google and email authentication use your project credentials and the real officer roster.
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <button type="button" className="btn-secondary" onClick={() => handleDemo("citizen")}>
             <UserRound size={17} />
             Demo citizen
           </button>
-          <button type="button" className="btn-secondary" onClick={() => handleDemo("admin")}>
+          <button type="button" className="btn-secondary" onClick={() => handleDemo("junior-officer")}>
+            <Users size={17} />
+            Demo junior officer
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => handleDemo("senior-officer")}>
             <Shield size={17} />
-            Demo admin
+            Demo senior officer
+          </button>
+          <button type="button" className="btn-secondary" onClick={() => handleDemo("super-admin")}>
+            <ShieldCheck size={17} />
+            Demo super admin
           </button>
         </div>
       </div>
 
-      <div className="card p-6">
+      <div className="card p-6 shadow-lift">
         <div className="mb-5 flex rounded-lg bg-slate-100 p-1">
-          <button type="button" className={`flex-1 rounded-md px-3 py-2 text-sm font-bold ${mode === "signin" ? "bg-white shadow-sm" : ""}`} onClick={() => setMode("signin")}>
+          <button type="button" className={`flex-1 rounded-md px-3 py-2 text-sm font-bold transition ${mode === "signin" ? "bg-white text-ink shadow-sm" : "text-slate-500 hover:text-ink"}`} onClick={() => setMode("signin")}>
             Sign in
           </button>
-          <button type="button" className={`flex-1 rounded-md px-3 py-2 text-sm font-bold ${mode === "signup" ? "bg-white shadow-sm" : ""}`} onClick={() => setMode("signup")}>
+          <button type="button" className={`flex-1 rounded-md px-3 py-2 text-sm font-bold transition ${mode === "signup" ? "bg-white text-ink shadow-sm" : "text-slate-500 hover:text-ink"}`} onClick={() => setMode("signup")}>
             Sign up
           </button>
         </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { RotateCcw, UserCog } from "lucide-react";
 import { resetPrototypeStore } from "../services/prototypeStore.js";
 import { regions } from "../config/regions.js";
 import { useAuth } from "../state/AuthContext.jsx";
@@ -11,15 +12,16 @@ export default function Settings() {
 
   function reset() {
     resetPrototypeStore();
-    showToast("Prototype data reset to SATI pilot seed records.");
+    showToast("Prototype data reset to the seed demo records.");
   }
 
   return (
     <section className="section max-w-4xl">
-      <h1 className="text-4xl font-black tracking-tight">Settings</h1>
+      <p className="eyebrow">Account</p>
+      <h1 className="page-title">Settings</h1>
       <div className="mt-6 grid gap-5">
         <div className="card p-5">
-          <h2 className="text-xl font-black">Profile</h2>
+          <h2 className="flex items-center gap-2 text-xl font-black"><UserCog size={20} className="text-civic" /> Profile</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label>
               <span className="mb-1 block text-sm font-bold">Name</span>
@@ -27,7 +29,7 @@ export default function Settings() {
             </label>
             <label>
               <span className="mb-1 block text-sm font-bold">Role</span>
-              <input className="field" value={user.role} readOnly />
+              <input className="field capitalize" value={user.role?.replace(/-/g, " ")} readOnly />
             </label>
           </div>
         </div>
@@ -41,7 +43,10 @@ export default function Settings() {
         <div className="card p-5">
           <h2 className="text-xl font-black">Prototype controls</h2>
           <p className="mt-2 text-sm text-slate-600">Local mode stores demo reports and compressed Base64 images in browser storage. Firestore mode uses your Firebase project.</p>
-          <button type="button" className="btn-secondary mt-4" onClick={reset}>Reset pilot data</button>
+          <button type="button" className="btn-secondary mt-4" onClick={reset}>
+            <RotateCcw size={16} />
+            Reset pilot data
+          </button>
         </div>
       </div>
     </section>

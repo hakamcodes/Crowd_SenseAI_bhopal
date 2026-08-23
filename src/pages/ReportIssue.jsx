@@ -5,7 +5,8 @@ import { getRegion, getZonesForRegion, issueCategories } from "../config/regions
 import { classifyComplaint } from "../services/aiService.js";
 import { findLikelyDuplicate } from "../services/duplicateService.js";
 import { compressImageToBase64 } from "../utils/image.js";
-import { detectNearestZone, getBrowserLocation } from "../utils/geo.js";
+import { getBrowserLocation } from "../utils/geo.js";
+import { resolveLocationIntelligence } from "../services/geoService.js";
 import { useAuth } from "../state/AuthContext.jsx";
 import { useData } from "../state/DataContext.jsx";
 import { useToast } from "../state/ToastContext.jsx";
@@ -17,20 +18,26 @@ export default function ReportIssue() {
   const { showToast } = useToast();
   const navigate = useNavigate();
   const region = getRegion(user?.regionPreference);
+  const isPolygonRegion = region.geoMode === "polygon";
   const regionZones = getZonesForRegion(region.regionId);
   const [description, setDescription] = useState("");
   const [image, setImage] = useState(null);
   const [imageMeta, setImageMeta] = useState(null);
   const [location, setLocation] = useState(null);
+  const [locating, setLocating] = useState(false);
   const [zoneState, setZoneState] = useState(null);
   const [manualZoneId, setManualZoneId] = useState("");
+  const [geoIntel, setGeoIntel] = useState(null);
   const [ai, setAi] = useState(null);
   const [duplicate, setDuplicate] = useState(null);
   const [busy, setBusy] = useState(false);
+
   const selectedZone = useMemo(
     () => zoneState?.zone || regionZones.find((zone) => zone.zoneId === manualZoneId) || null,
     [manualZoneId, regionZones, zoneState],
   );
+  const areaLabel = isPolygonRegion ? geoIntel?.ward?.name : selectedZone?.name;
+  const canSubmitLocation = isPolygonRegion ? Boolean(location) : Boolean(selectedZone);
 
   async function handleImage(file) {
     try {
@@ -44,16 +51,25 @@ export default function ReportIssue() {
   }
 
   async function captureLocation() {
+    setLocating(true);
     try {
       const gps = await getBrowserLocation();
       setLocation(gps);
-      const detected = detectNearestZone(gps, regionZones);
-      setZoneState(detected);
-      setManualZoneId(detected.zone?.zoneId || "");
-      showToast(detected.zone ? `Detected ${detected.zone.name}.` : "Location captured; choose a zone manually.");
+      const intel = await resolveLocationIntelligence(gps, region);
+      if (intel.geoMode === "circle") {
+        setZoneState(intel.zoneDetection);
+        setManualZoneId(intel.zoneDetection?.zone?.zoneId || "");
+        setGeoIntel(null);
+        showToast(intel.zoneDetection?.zone ? `Detected ${intel.zoneDetection.zone.name}.` : "Location captured; choose a zone manually.");
+      } else {
+        setGeoIntel(intel);
+        showToast(intel.ward ? `Detected Ward ${intel.ward.number} - ${intel.ward.name}.` : "Location captured, but it falls outside mapped Bhopal wards.");
+      }
     } catch (error) {
-      showToast(error.message || "Location permission denied. Choose a zone manually.", "error");
+      showToast(error.message || "Location permission denied.", "error");
       setZoneState({ zone: null, status: "manual" });
+    } finally {
+      setLocating(false);
     }
   }
 
@@ -67,31 +83,25 @@ export default function ReportIssue() {
       const result = await classifyComplaint({
         description,
         imageData: image,
-        zoneName: selectedZone?.name,
+        zoneName: areaLabel,
         regionName: region.name,
+        regionId: region.regionId,
       });
-      const normalized = {
-        category: result.category || "Other",
-        priority: result.priority || "Medium",
-        summary: result.summary || description,
-        confidence: Number(result.confidence || 0.5),
-        suggestedDepartment: result.suggestedDepartment || "Campus Administration",
-        tags: result.tags || [],
-        source: result.source || "ai",
-      };
-      setAi(normalized);
+      setAi(result);
 
       const candidate = {
         regionId: region.regionId,
         zoneId: selectedZone?.zoneId,
+        ward: geoIntel?.ward || null,
         latitude: location?.latitude || selectedZone?.latitude,
         longitude: location?.longitude || selectedZone?.longitude,
         description,
-        aiCategory: normalized.category,
+        aiCategory: result.category,
+        imageHash: imageMeta?.imageHash || "",
         createdAt: new Date().toISOString(),
       };
       setDuplicate(findLikelyDuplicate(candidate, complaints));
-      return normalized;
+      return result;
     } finally {
       setBusy(false);
     }
@@ -103,7 +113,7 @@ export default function ReportIssue() {
       showToast("Upload a photo so the authority has evidence.", "error");
       return;
     }
-    if (!selectedZone) {
+    if (!canSubmitLocation) {
       showToast("Capture location or choose a zone.", "error");
       return;
     }
@@ -118,22 +128,39 @@ export default function ReportIssue() {
       const complaint = await submitComplaint({
         userId: user.uid,
         regionId: region.regionId,
-        zoneId: selectedZone.zoneId,
-        zoneName: selectedZone.name,
-        latitude: location?.latitude || selectedZone.latitude,
-        longitude: location?.longitude || selectedZone.longitude,
+        city: isPolygonRegion ? region.name : "",
+        state: region.state,
+        country: region.country,
+        municipality: region.municipality || "",
+        ward: geoIntel?.ward || null,
+        zone: geoIntel?.zone || null,
+        locality: geoIntel?.address?.locality || "",
+        road: geoIntel?.address?.road || "",
+        formattedAddress: geoIntel?.address?.formattedAddress || "",
+        zoneId: selectedZone?.zoneId || "",
+        zoneName: isPolygonRegion ? (geoIntel?.zone?.number ? `Zone ${geoIntel.zone.number}` : "") : selectedZone?.name,
+        latitude: location?.latitude || selectedZone?.latitude,
+        longitude: location?.longitude || selectedZone?.longitude,
         accuracy: location?.accuracy || null,
         imageData: image,
         imageMimeType: imageMeta?.imageMimeType || "image/jpeg",
         imageSize: imageMeta?.imageSize || 0,
+        imageHash: imageMeta?.imageHash || "",
         description: description.trim(),
         aiCategory: classification.category,
+        aiSubcategory: classification.subcategory,
         aiPriority: classification.priority,
         aiSummary: classification.summary,
+        aiSeverityScore: classification.severityScore,
+        aiCivicImpactScore: classification.civicImpactScore,
+        aiRisks: classification.risks,
+        aiRecommendedAction: classification.recommendedAction,
+        aiSuggestedDepartment: classification.aiSuggestedDepartment,
         confidence: classification.confidence,
         tags: classification.tags,
-        assignedDepartment: classification.suggestedDepartment,
+        assignedDepartment: classification.aiSuggestedDepartment,
         duplicateGroupId: "",
+        duplicatePercentage: 0,
         isDuplicate: false,
         anonymous: false,
       });
@@ -156,24 +183,26 @@ export default function ReportIssue() {
   return (
     <section className="section">
       <div className="mb-6">
-        <p className="text-sm font-black uppercase tracking-[0.18em] text-civic">Report in under one minute</p>
-        <h1 className="mt-2 text-4xl font-black tracking-tight">Report a civic issue</h1>
+        <p className="eyebrow">Report in under one minute</p>
+        <h1 className="page-title">Report a civic issue</h1>
       </div>
 
       <form className="grid gap-6 lg:grid-cols-[1fr_0.78fr]" onSubmit={createNewComplaint}>
         <div className="card space-y-5 p-5">
           <label className="block">
             <span className="mb-2 block text-sm font-bold">Issue photo</span>
-            <div className="grid min-h-64 place-items-center rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-4">
+            <div className="grid min-h-64 place-items-center rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-4 transition hover:border-civic/40 hover:bg-teal-50/40">
               {image ? (
-                <img src={image} alt="Selected complaint evidence" className="max-h-80 rounded-lg object-contain" />
+                <img src={image} alt="Selected complaint evidence" className="max-h-80 rounded-lg object-contain shadow-card" />
               ) : (
                 <div className="text-center text-slate-500">
-                  <Camera className="mx-auto mb-2" />
+                  <span className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-full bg-teal-50 text-civic ring-4 ring-teal-100">
+                    <Camera size={20} />
+                  </span>
                   Upload a clear photo. It will be compressed before saving.
                 </div>
               )}
-              <input className="mt-4 w-full text-sm" type="file" accept="image/*" onChange={(event) => handleImage(event.target.files?.[0])} />
+              <input className="mt-4 w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-civic file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-teal-800" type="file" accept="image/*" onChange={(event) => handleImage(event.target.files?.[0])} />
             </div>
           </label>
 
@@ -191,9 +220,9 @@ export default function ReportIssue() {
           </label>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <button type="button" className="btn-secondary" onClick={captureLocation}>
+            <button type="button" className="btn-secondary" onClick={captureLocation} disabled={locating}>
               <LocateFixed size={17} />
-              Capture GPS location
+              {locating ? "Locating..." : "Capture GPS location"}
             </button>
             <button type="button" className="btn-secondary" onClick={analyze} disabled={busy}>
               <Sparkles size={17} />
@@ -201,37 +230,67 @@ export default function ReportIssue() {
             </button>
           </div>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-bold">Detected or manual zone</span>
-            <select className="field" value={manualZoneId} onChange={(event) => setManualZoneId(event.target.value)}>
-              <option value="">Unmapped / Verify manually</option>
-              {regionZones.map((zone) => <option key={zone.zoneId} value={zone.zoneId}>{zone.name}</option>)}
-            </select>
-          </label>
+          {!isPolygonRegion && (
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold">Detected or manual zone</span>
+              <select className="field" value={manualZoneId} onChange={(event) => setManualZoneId(event.target.value)}>
+                <option value="">Unmapped / Verify manually</option>
+                {regionZones.map((zone) => <option key={zone.zoneId} value={zone.zoneId}>{zone.name}</option>)}
+              </select>
+            </label>
+          )}
         </div>
 
         <aside className="space-y-4">
           <div className="card p-5">
-            <h2 className="text-lg font-black">Submission intelligence</h2>
-            <div className="mt-4 space-y-3 text-sm">
-              <p className="flex items-center gap-2"><MapPin size={16} /> Region: <strong>{region.name}</strong></p>
+            <h2 className="flex items-center gap-2 text-lg font-black"><MapPin size={18} className="text-civic" /> Submission intelligence</h2>
+            <div className="mt-4 space-y-2 text-sm">
+              <p>{isPolygonRegion ? "City" : "Region"}: <strong>{region.name}</strong></p>
               <p>GPS: {location ? `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)} (${Math.round(location.accuracy || 0)}m)` : "Not captured"}</p>
-              <p>Zone: <strong>{selectedZone?.name || "Unmapped / Verify"}</strong></p>
-              {zoneState?.status === "outside" && (
-                <p className="rounded-md bg-amber-50 p-3 text-amber-900">Nearest configured zone is {zoneState.nearestZone?.name}, but GPS is outside its radius.</p>
+              {isPolygonRegion ? (
+                <>
+                  <p>Ward: <strong>{geoIntel?.ward ? `${geoIntel.ward.number} - ${geoIntel.ward.name}` : location ? "Outside mapped wards" : "Not captured"}</strong></p>
+                  <p>Zone: <strong>{geoIntel?.zone ? `Zone ${geoIntel.zone.number}` : "-"}</strong></p>
+                  <p>Locality: {geoIntel?.address?.locality || "-"}</p>
+                  <p>Address: {geoIntel?.address?.formattedAddress || "-"}</p>
+                  {location && !geoIntel?.ward && (
+                    <p className="rounded-md bg-amber-50 p-3 text-amber-900">This location is outside the mapped Bhopal ward boundaries. It can still be submitted, but no ward will be attached.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p>Zone: <strong>{selectedZone?.name || "Unmapped / Verify"}</strong></p>
+                  {zoneState?.status === "outside" && (
+                    <p className="rounded-md bg-amber-50 p-3 text-amber-900">Nearest configured zone is {zoneState.nearestZone?.name}, but GPS is outside its radius.</p>
+                  )}
+                </>
               )}
             </div>
           </div>
 
           {ai && (
-            <div className="card p-5">
+            <div className="card animate-fade-up p-5">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-lg font-black">AI classification</h2>
+                <h2 className="flex items-center gap-2 text-lg font-black"><Sparkles size={18} className="text-civic" /> AI classification</h2>
                 <PriorityBadge priority={ai.priority} />
               </div>
-              <p className="mt-3 text-sm font-bold">{ai.category}</p>
+              <p className="mt-3 text-sm font-bold">{ai.category}{ai.subcategory ? ` - ${ai.subcategory}` : ""}</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">{ai.summary}</p>
-              <p className="mt-3 text-xs font-semibold text-slate-500">Confidence: {Math.round(ai.confidence * 100)}% - {ai.source}</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                <span className="rounded-md bg-slate-50 px-2 py-1.5">Severity: <strong className="text-ink">{ai.severityScore}/10</strong></span>
+                <span className="rounded-md bg-slate-50 px-2 py-1.5">Civic impact: <strong className="text-ink">{ai.civicImpactScore}/100</strong></span>
+                <span className="rounded-md bg-slate-50 px-2 py-1.5">Department: <strong className="text-ink">{ai.aiSuggestedDepartment}</strong></span>
+                <span className="rounded-md bg-slate-50 px-2 py-1.5">Confidence: <strong className="text-ink">{Math.round(ai.confidence * 100)}%</strong></span>
+              </div>
+              {ai.risks && (
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {Object.entries(ai.risks).filter(([, level]) => level !== "Low").map(([key, level]) => (
+                    <span key={key} className="rounded-full bg-red-50 px-2 py-1 font-bold text-red-800">{key}: {level}</span>
+                  ))}
+                </div>
+              )}
+              {ai.recommendedAction && <p className="mt-3 text-xs text-slate-500">Suggested action: {ai.recommendedAction}</p>}
+              <p className="mt-3 text-xs font-semibold text-slate-500">Source: {ai.source}</p>
               {ai.confidence < 0.65 && (
                 <label className="mt-3 block">
                   <span className="mb-1 block text-sm font-bold">Adjust category</span>
@@ -244,8 +303,8 @@ export default function ReportIssue() {
           )}
 
           {duplicate && (
-            <div className="card border-amber-200 bg-amber-50 p-5">
-              <h2 className="flex items-center gap-2 text-lg font-black text-amber-950"><AlertTriangle size={19} /> Likely duplicate</h2>
+            <div className="card animate-fade-up border-amber-200 bg-amber-50 p-5">
+              <h2 className="flex items-center gap-2 text-lg font-black text-amber-950"><AlertTriangle size={19} /> Likely duplicate ({duplicate.duplicatePercentage}% match)</h2>
               <p className="mt-2 text-sm leading-6 text-amber-900">A similar issue already exists. Supporting it will raise priority without cluttering the system.</p>
               <Link to={`/complaints/${duplicate.complaint.complaintId}`} className="mt-3 block rounded-md bg-white p-3 text-sm font-bold">
                 {duplicate.complaint.aiSummary}
