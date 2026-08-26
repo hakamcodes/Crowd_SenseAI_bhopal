@@ -2,7 +2,7 @@
 //
 // Mirrors the three-tier officer hierarchy already implemented client-side in
 // src/services/officerService.js:
-//   - super-admin: full access everywhere.
+//   - super-admin: full access everywhere..
 //   - senior-officer: read/update complaints in their own zone only.
 //   - junior-officer: read/update complaints assigned to them only.
 //   - citizen (signed in, no officer doc): can create a complaint (only as
