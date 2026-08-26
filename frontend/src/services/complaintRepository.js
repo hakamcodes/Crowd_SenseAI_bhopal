@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, orderBy, query, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, increment, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "./firebase.js";
 import { readStore, writeStore } from "./prototypeStore.js";
 import { toDate } from "../utils/date.js";
@@ -159,10 +159,21 @@ export async function updateComplaint(complaintId, patch, actorId = "system") {
 }
 
 export async function supportComplaint(complaintId, userId) {
+  const now = new Date().toISOString();
+
+  if (isFirebaseConfigured) {
+    const voteRef = doc(db, "votes", `${complaintId}_${userId}`);
+    const existing = await getDoc(voteRef);
+    if (existing.exists()) return { alreadySupported: true };
+
+    await setDoc(voteRef, { complaintId, userId, createdAt: now });
+    await updateDoc(doc(db, "complaints", complaintId), { supportCount: increment(1), updatedAt: now });
+    return { alreadySupported: false };
+  }
+
   const store = readStore();
   const existing = store.votes.find((vote) => vote.complaintId === complaintId && vote.userId === userId);
   if (existing) return { alreadySupported: true };
-  const now = new Date().toISOString();
   const vote = { voteId: uid("vote"), complaintId, userId, createdAt: now };
   const complaints = store.complaints.map((item) =>
     item.complaintId === complaintId ? { ...item, supportCount: (item.supportCount || 0) + 1, updatedAt: now } : item,
@@ -172,8 +183,15 @@ export async function supportComplaint(complaintId, userId) {
 }
 
 export async function addAdminNote(complaintId, adminId, note) {
-  const store = readStore();
   const now = new Date().toISOString();
+
+  if (isFirebaseConfigured) {
+    await addDoc(collection(db, "adminNotes"), { complaintId, adminId, note, createdAt: now });
+    await updateDoc(doc(db, "complaints", complaintId), { adminNotes: note, updatedAt: now });
+    return;
+  }
+
+  const store = readStore();
   const adminNote = { noteId: uid("note"), complaintId, adminId, note, createdAt: now };
   const complaints = store.complaints.map((item) =>
     item.complaintId === complaintId ? { ...item, adminNotes: note, updatedAt: now } : item,

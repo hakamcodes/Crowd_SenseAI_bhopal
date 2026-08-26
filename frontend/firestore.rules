@@ -20,7 +20,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function superAdminEmails() {
-      return ['admin@example.com'];
+      return ['hakamsinghlodhi674@gmail.com', 'hakamsinghlodhi675@gmail.com'];
     }
 
     function isSignedIn() {
@@ -89,6 +89,22 @@ service cloud.firestore {
 
     match /auditLog/{entryId} {
       allow read: if isSuperAdmin();
+      allow create: if isActiveOfficer() || isSuperAdmin();
+      allow update, delete: if false;
+    }
+
+    // One vote per user per complaint - doc id is "{complaintId}_{userId}" so
+    // a duplicate support-tap is a no-op create rather than a second vote.
+    match /votes/{voteId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Admin note history; only officers/super-admin can annotate a complaint
+    // (matches the update rule's own gating on the complaint doc's adminNotes field).
+    match /adminNotes/{noteId} {
+      allow read: if isSignedIn();
       allow create: if isActiveOfficer() || isSuperAdmin();
       allow update, delete: if false;
     }

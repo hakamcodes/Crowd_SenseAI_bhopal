@@ -10,7 +10,7 @@ import { useAuth } from "./AuthContext.jsx";
 const DataContext = createContext(null);
 
 export function DataProvider({ children }) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [complaints, setComplaints] = useState([]);
   const [officers, setOfficers] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -20,32 +20,46 @@ export function DataProvider({ children }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [complaintList, roster] = await Promise.all([listComplaints(), listOfficers()]);
+      // Complaints and the officer roster are fetched independently: the
+      // complaint feed is public, but the roster requires sign-in, so a
+      // logged-out visitor must still see complaints even if the roster
+      // read is denied.
+      const [complaintResult, rosterResult] = await Promise.allSettled([listComplaints(), listOfficers()]);
+      const complaintList = complaintResult.status === "fulfilled" ? complaintResult.value : [];
+      const roster = rosterResult.status === "fulfilled" ? rosterResult.value : [];
+      if (complaintResult.status === "rejected") console.error("Failed to load complaints:", complaintResult.reason);
+      if (rosterResult.status === "rejected") console.error("Failed to load officer roster:", rosterResult.reason);
       setOfficers(roster);
 
       // Deterministic SLA-breach escalation, applied client-side on refresh
       // (no scheduled backend job in this prototype - see plan notes).
-      if (!escalatingRef.current) {
+      // Only signed-in officers/admins can write escalation bumps under the
+      // Firestore rules, so this never runs for anonymous visitors.
+      if (isAdmin && !escalatingRef.current) {
         escalatingRef.current = true;
-        const bumps = computeEscalationBumps(complaintList, roster);
-        if (bumps.length) {
-          await Promise.all(
-            bumps.map(async (bump) => {
-              await updateComplaint(bump.complaintId, bump.patch, "system-escalation");
-              await Promise.all(bump.notifyEmails.map((email) => notify(email, "escalation", bump.complaintId, bump.message)));
-            }),
-          );
-          setComplaints(await listComplaints());
+        try {
+          const bumps = computeEscalationBumps(complaintList, roster);
+          if (bumps.length) {
+            await Promise.all(
+              bumps.map(async (bump) => {
+                await updateComplaint(bump.complaintId, bump.patch, "system-escalation");
+                await Promise.all(bump.notifyEmails.map((email) => notify(email, "escalation", bump.complaintId, bump.message)));
+              }),
+            );
+            setComplaints(await listComplaints());
+            return;
+          }
+        } catch (error) {
+          console.error("Failed to apply SLA escalation:", error);
+        } finally {
           escalatingRef.current = false;
-          return;
         }
-        escalatingRef.current = false;
       }
       setComplaints(complaintList);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     refresh();
