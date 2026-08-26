@@ -52,9 +52,9 @@ The default region is **Bhopal, Madhya Pradesh, India** (Bhopal Municipal Corpor
 
 ### AI
 
-- **Anthropic Claude API** (Messages API, structured JSON output, vision for the uploaded complaint photo)
+- **Anthropic Claude API** (Messages API, structured JSON output, vision for the uploaded complaint photo), with Groq as a silent server-side backup
 - Used for category/subcategory, priority, severity score, summary, tags, risk indicators, civic impact score, recommended action, and a suggested department
-- Includes a deterministic heuristic fallback if AI is unavailable, and an optional `VITE_BACKEND_API_BASE_URL` proxy path for production use instead of calling the API directly from the browser
+- All AI calls go through the `backend/` proxy (`VITE_BACKEND_API_BASE_URL`), which holds the provider API keys - the browser never calls Anthropic/Groq directly. A deterministic heuristic fallback covers the case where the backend is unset or unavailable.
 
 ### GIS and Location
 
@@ -65,9 +65,9 @@ The default region is **Bhopal, Madhya Pradesh, India** (Bhopal Municipal Corpor
 
 ### Deployment and Version Control
 
-- **Netlify** for deployment (`netlify.toml` included, with an SPA redirect for React Router)
+- **Vercel** for deployment (`vercel.json` included, with an SPA rewrite for React Router)
 - **GitHub** for version control and submission
-- Environment variables for Firebase and Anthropic credentials
+- Environment variables for Firebase credentials; AI provider credentials live only in `backend/`, never in the frontend
 
 ## Main User Flow
 
@@ -97,7 +97,7 @@ Complaints escalate automatically and deterministically (no AI involved) when a 
 3. Officer reviews the ward-wise/zone-wise map and analytics, department performance, and emerging-hotspot trends.
 4. Senior/Super Admin assigns complaints to officers; officers update status, add internal notes, and upload resolution proof.
 
-**Known limitation:** complaint visibility by zone/assignment is enforced client-side only in this pass - there is no `firestore.rules` file in this repo yet, so it is not a real server-side security boundary. Tightening Firestore rules to match is a natural follow-up.
+Server-side enforcement of this hierarchy lives in `firestore.rules` (deploy with `firebase deploy --only firestore:rules`) - the client-side checks above are a UX convenience, not the security boundary.
 
 ## AI Usage
 
@@ -123,8 +123,6 @@ VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=your_project_id
 VITE_FIREBASE_APP_ID=your_firebase_app_id
 
-VITE_ANTHROPIC_API_KEY=your_anthropic_api_key
-VITE_ANTHROPIC_MODEL=claude-opus-5
 VITE_BACKEND_API_BASE_URL=
 VITE_ADMIN_EMAILS=admin@example.com
 
@@ -153,12 +151,12 @@ The production build is generated in the `dist` folder.
 
 ## Deployment
 
-The app can be deployed on **Netlify**:
+The app can be deployed on **Vercel**:
 
 1. Push the project to GitHub.
-2. Connect the GitHub repository to Netlify.
-3. `netlify.toml` already sets the build command (`npm run build`), publish directory (`dist`), and the SPA redirect React Router needs.
-4. Add all required environment variables in Netlify project settings.
+2. Connect the GitHub repository to Vercel, with `frontend` as the project root.
+3. `vercel.json` already sets the SPA rewrite React Router needs.
+4. Add all required environment variables in the Vercel project settings, including `VITE_BACKEND_API_BASE_URL` pointing at the deployed `backend/`.
 
 ## Why This Project Stands Out
 

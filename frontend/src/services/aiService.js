@@ -1,54 +1,6 @@
 import { issueCategories, priorities, resolveDepartmentForCategory } from "../config/regions.js";
 
-const ANTHROPIC_VERSION = "2023-06-01";
-const DEFAULT_MODEL = "claude-opus-5";
-
 const RISK_LEVELS = ["Low", "Medium", "High", "Critical"];
-
-const CLASSIFICATION_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: [
-    "category",
-    "subcategory",
-    "priority",
-    "severityScore",
-    "summary",
-    "aiSuggestedDepartment",
-    "recommendedAction",
-    "tags",
-    "confidence",
-    "risks",
-    "civicImpactScore",
-    "imageObservations",
-    "duplicateContext",
-  ],
-  properties: {
-    category: { type: "string", enum: issueCategories },
-    subcategory: { type: "string", description: "A more specific label within the category, e.g. 'sunken manhole' for Road Damage." },
-    priority: { type: "string", enum: priorities },
-    severityScore: { type: "integer", description: "Severity from 1 (trivial) to 10 (emergency)." },
-    summary: { type: "string", description: "One or two sentence civic summary of the issue." },
-    aiSuggestedDepartment: { type: "string", description: "The department that seems responsible, for admin transparency only." },
-    recommendedAction: { type: "string", description: "A short, concrete next step for the responsible department." },
-    tags: { type: "array", items: { type: "string" } },
-    confidence: { type: "number", description: "Classification confidence from 0 to 1." },
-    risks: {
-      type: "object",
-      additionalProperties: false,
-      required: ["publicHealth", "safety", "environmental", "traffic"],
-      properties: {
-        publicHealth: { type: "string", enum: RISK_LEVELS },
-        safety: { type: "string", enum: RISK_LEVELS },
-        environmental: { type: "string", enum: RISK_LEVELS },
-        traffic: { type: "string", enum: RISK_LEVELS },
-      },
-    },
-    civicImpactScore: { type: "integer", description: "Overall civic impact from 0 (negligible) to 100 (city-wide emergency)." },
-    imageObservations: { type: "string", description: "What is visibly observed in the attached photo, if one was provided." },
-    duplicateContext: { type: "string", description: "Any hint from the description that this might be a recurring or already-reported issue." },
-  },
-};
 
 function clamp(value, min, max, fallback) {
   const num = Number(value);
@@ -162,46 +114,10 @@ function normalizeClassification(result, { description, zoneName, regionId }) {
   };
 }
 
-async function callClaude({ description, imageData, zoneName, regionName }) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey || apiKey.includes("replace")) return null;
-
-  const model = import.meta.env.VITE_ANTHROPIC_MODEL || DEFAULT_MODEL;
-  const promptText = `You are triaging a civic complaint for ${regionName}${zoneName ? ` (${zoneName})` : ""}. Description: ${description}`;
-  const content = [{ type: "text", text: promptText }];
-  if (imageData) {
-    content.push({
-      type: "image",
-      source: { type: "base64", media_type: "image/jpeg", data: imageData.split(",")[1] || imageData },
-    });
-  }
-
-  // Direct browser calls require this header (same trust tradeoff already
-  // accepted by shipping the Firebase key client-side). For production, set
-  // VITE_BACKEND_API_BASE_URL to proxy this call through a server instead.
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": ANTHROPIC_VERSION,
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      output_config: { effort: "low", format: { type: "json_schema", schema: CLASSIFICATION_SCHEMA } },
-      messages: [{ role: "user", content }],
-    }),
-  });
-
-  if (!response.ok) throw new Error(`Claude request failed (${response.status}).`);
-  const data = await response.json();
-  const text = data.content?.find((block) => block.type === "text")?.text;
-  if (!text) throw new Error("Claude returned no classification text.");
-  return JSON.parse(text);
-}
-
+// AI calls always go through the backend proxy, which holds the provider API
+// keys server-side. The browser never talks to Anthropic/Groq directly - if
+// the backend is unset or fails, we fall straight to the deterministic
+// heuristic below rather than exposing a key to the client.
 export async function classifyComplaint({ description, imageData, zoneName, regionName, regionId }) {
   const backendUrl = import.meta.env.VITE_BACKEND_API_BASE_URL;
 
@@ -215,15 +131,8 @@ export async function classifyComplaint({ description, imageData, zoneName, regi
       if (!response.ok) throw new Error("AI backend request failed.");
       return normalizeClassification(await response.json(), { description, zoneName, regionId });
     } catch (error) {
-      console.warn("AI backend failed, trying direct Claude call.", error);
+      console.warn("AI backend failed, using heuristic fallback.", error);
     }
-  }
-
-  try {
-    const result = await callClaude({ description, imageData, zoneName, regionName });
-    if (result) return normalizeClassification(result, { description, zoneName, regionId });
-  } catch (error) {
-    console.warn("Claude classification failed, using heuristic fallback.", error);
   }
 
   return heuristicClassify({ description, zoneName, regionId });
@@ -241,42 +150,26 @@ export function generateAdminSummary(complaints) {
 
 // Narrates already-computed deterministic aggregate stats (never invents
 // ward/zone/department numbers itself). Falls back to the plain template
-// summary above when Claude is unavailable.
+// summary below when the backend is unset or unavailable.
 export async function generateCivicBriefing(stats, region) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  const backendUrl = import.meta.env.VITE_BACKEND_API_BASE_URL;
   const fallback = () =>
     `${stats.open} open issues across ${region.name}, including ${stats.highPriority} high-priority and ${stats.slaBreached} SLA-breached. Top hotspot ward: ${stats.topWard || "none yet"}.`;
 
-  if (!apiKey || apiKey.includes("replace")) return fallback();
-
-  try {
-    const model = import.meta.env.VITE_ANTHROPIC_MODEL || DEFAULT_MODEL;
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": ANTHROPIC_VERSION,
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 400,
-        output_config: { effort: "low" },
-        messages: [
-          {
-            role: "user",
-            content: `Write a 2-3 sentence civic intelligence briefing for ${region.name} municipal administrators using only these already-computed statistics (do not invent any numbers not given here): ${JSON.stringify(stats)}`,
-          },
-        ],
-      }),
-    });
-    if (!response.ok) throw new Error("Briefing request failed.");
-    const data = await response.json();
-    const text = data.content?.find((block) => block.type === "text")?.text;
-    return text || fallback();
-  } catch (error) {
-    console.warn("Civic briefing generation failed, using deterministic summary.", error);
-    return fallback();
+  if (backendUrl) {
+    try {
+      const response = await fetch(`${backendUrl}/ai/briefing`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stats, region }),
+      });
+      if (!response.ok) throw new Error("AI backend briefing request failed.");
+      const data = await response.json();
+      if (data.text) return data.text;
+    } catch (error) {
+      console.warn("AI backend briefing failed, using deterministic summary.", error);
+    }
   }
+
+  return fallback();
 }
