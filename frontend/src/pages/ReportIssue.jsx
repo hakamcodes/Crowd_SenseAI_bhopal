@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Camera, CheckCircle2, LocateFixed, MapPin, Sparkles, ThumbsUp } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { getRegion, getZonesForRegion, issueCategories } from "../config/regions.js";
 import { classifyComplaint } from "../services/aiService.js";
 import { findLikelyDuplicate } from "../services/duplicateService.js";
@@ -17,6 +17,7 @@ export default function ReportIssue() {
   const { complaints, submitComplaint, support } = useData();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const routerLocation = useLocation();
   const region = getRegion(user?.regionPreference);
   const isPolygonRegion = region.geoMode === "polygon";
   const regionZones = getZonesForRegion(region.regionId);
@@ -167,7 +168,12 @@ export default function ReportIssue() {
       showToast("Complaint submitted.");
       navigate(`/complaints/${complaint.complaintId}`);
     } catch (error) {
-      showToast(error.message || "Could not submit complaint.", "error");
+      if (error.code === "permission-denied") {
+        showToast("Please log in to submit a complaint.", "error");
+        navigate("/signin", { state: { from: routerLocation } });
+      } else {
+        showToast(error.message || "Could not submit complaint.", "error");
+      }
     } finally {
       setBusy(false);
     }
@@ -175,9 +181,18 @@ export default function ReportIssue() {
 
   async function supportDuplicate() {
     if (!duplicate) return;
-    const result = await support(duplicate.complaint.complaintId, user.uid);
-    showToast(result.alreadySupported ? "You already support this issue." : "Support added to existing complaint.");
-    navigate(`/complaints/${duplicate.complaint.complaintId}`);
+    try {
+      const result = await support(duplicate.complaint.complaintId, user.uid);
+      showToast(result.alreadySupported ? "You already support this issue." : "Support added to existing complaint.");
+      navigate(`/complaints/${duplicate.complaint.complaintId}`);
+    } catch (error) {
+      if (error.code === "permission-denied") {
+        showToast("Please log in to support this issue.", "error");
+        navigate("/signin", { state: { from: routerLocation } });
+      } else {
+        showToast(error.message || "Could not support this issue.", "error");
+      }
+    }
   }
 
   return (

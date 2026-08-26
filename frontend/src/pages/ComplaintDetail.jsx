@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Clock3, MapPin, ThumbsUp, Undo2, Upload } from "lucide-react";
 import MapPanel from "../components/map/MapPanel.jsx";
 import Timeline from "../components/complaints/Timeline.jsx";
@@ -15,6 +15,7 @@ import { useToast } from "../state/ToastContext.jsx";
 
 export default function ComplaintDetail() {
   const { complaintId } = useParams();
+  const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
   const { complaints, officers, support, saveComplaintPatch, assignOfficer, bounceToSenior, note } = useData();
   const { showToast } = useToast();
@@ -44,11 +45,21 @@ export default function ComplaintDetail() {
 
   async function handleSupport() {
     if (!user) {
-      showToast("Sign in to support this issue.", "error");
+      showToast("Please log in to support this issue.", "error");
+      navigate("/signin", { state: { from: { pathname: `/complaints/${complaintId}` } } });
       return;
     }
-    const result = await support(complaint.complaintId, user.uid);
-    showToast(result.alreadySupported ? "You already support this issue." : "Support recorded.");
+    try {
+      const result = await support(complaint.complaintId, user.uid);
+      showToast(result.alreadySupported ? "You already support this issue." : "Support recorded.");
+    } catch (error) {
+      if (error.code === "permission-denied") {
+        showToast("Please log in to support this issue.", "error");
+        navigate("/signin", { state: { from: { pathname: `/complaints/${complaintId}` } } });
+      } else {
+        showToast(error.message || "Could not record support.", "error");
+      }
+    }
   }
 
   async function handleAdminPatch(patch) {

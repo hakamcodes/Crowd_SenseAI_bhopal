@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, increment, orderBy, query, setDoc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, increment, orderBy, query, runTransaction, setDoc, updateDoc } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "./firebase.js";
 import { readStore, writeStore } from "./prototypeStore.js";
 import { toDate } from "../utils/date.js";
@@ -163,12 +163,15 @@ export async function supportComplaint(complaintId, userId) {
 
   if (isFirebaseConfigured) {
     const voteRef = doc(db, "votes", `${complaintId}_${userId}`);
-    const existing = await getDoc(voteRef);
-    if (existing.exists()) return { alreadySupported: true };
+    const complaintRef = doc(db, "complaints", complaintId);
+    return runTransaction(db, async (transaction) => {
+      const existing = await transaction.get(voteRef);
+      if (existing.exists()) return { alreadySupported: true };
 
-    await setDoc(voteRef, { complaintId, userId, createdAt: now });
-    await updateDoc(doc(db, "complaints", complaintId), { supportCount: increment(1), updatedAt: now });
-    return { alreadySupported: false };
+      transaction.set(voteRef, { complaintId, userId, createdAt: now });
+      transaction.update(complaintRef, { supportCount: increment(1), updatedAt: now });
+      return { alreadySupported: false };
+    });
   }
 
   const store = readStore();
